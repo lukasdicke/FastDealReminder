@@ -15,14 +15,13 @@ Options:
 """
 
 import json
-from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email.mime.text import MIMEText
-from email import encoders
 import smtplib
-from pathlib import Path
 from datetime import datetime, timedelta
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from pathlib import Path
 
 CONST_SUBSTRING_FILENAME = "SubstringFilename"
 CONST_LOCATION = "Location"
@@ -31,6 +30,9 @@ CONST_INFO_TEXT = "InfoText"
 CONST_DELIVERY_DAY_FORMAT = "DeliveryDateFormat"
 CONST_WARNING_TIMESTAMP = "WarningTimestamp"
 CONST_CLEARNAME = "Clearname"
+
+CONST_LINK_TEXT_FOLDER="Click to open folder"
+CONST_LINK_TEXT_FILE="Click to open file"
 
 
 def SendMailPythonServer(send_to, send_cc, send_bcc, subject, body, files=[]):
@@ -128,11 +130,16 @@ class FastDealReminderConfig():
         self.NeedOfWarning = getNeedOfWarning(_config[CONST_WARNING_TIMESTAMP])
         self.StrDeliveryDayToSearchFor = self.DeliveryDay.strftime(self.DeliveryDayFormat)
         self.StrDeliveryDayToReport = self.DeliveryDay.strftime("%d.%m.%y")
-        self.WarningMessage = ""
+        self.WarningMessageMissingFiles = ""
+        self.WarningMessageFilesNotProcessed = ""
+        self.WarningMessageDeliveryDayIntegrityArchiveFolder=""
+        self.WarningMessageDeliveryDayIntegrityProcessFolder = ""
 
 
-def GetHyperlink(filename):
-    return "<a href=" + filename + ">Click to open folder</a>"
+def GetHyperlink(filename,linkText):
+
+    return "<a href=" + filename + ">" + linkText +"</a>"
+
 
 
 def GetFiles(_config, folder):
@@ -144,19 +151,42 @@ def GetFiles(_config, folder):
             if _config.StrDeliveryDayToSearchFor in file
             ]
 
-def CheckMissingFileInArchiveFolder(_config):
 
-    folder=_config.ArchiveFolder
+def CheckMissingFileInArchiveFolder(_config):
+    folder = _config.ArchiveFolder
 
     if len(GetFiles(_config, folder)) == 0:
-        _config.WarningMessage = "<br>" + "No appropriate file '" + _config.Clearname + "'  (Del.: " + _config.StrDeliveryDayToReport + ") found (" + GetHyperlink(_config.ArchiveFolder) + ")."
+        _config.WarningMessageMissingFiles = "No appropriate file '" + _config.Clearname + "'  (Del.: " + _config.StrDeliveryDayToReport + ") found (" + GetHyperlink(
+            _config.ArchiveFolder, CONST_LINK_TEXT_FOLDER) + ").<br><br>"
 
     return _config
 
 
-def CheckThroughWholeConfig(config1):
-    messageMissingFiles = ""
+def CheckFilesToBeProcessed(_config):
+    folder = _config.ProcessFolder
 
+    files = GetFiles(_config, folder)
+
+    if len(files) > 0:
+        for file in files:
+            _config.WarningMessageFilesNotProcessed = _config.WarningMessageFilesNotProcessed + "File: '" + file + "' has not been processed yet (" + GetHyperlink(
+                _config.ProcessFolder, CONST_LINK_TEXT_FOLDER) + ").<br><br>"
+
+    return _config
+
+
+def CheckFileForDeliveryDayIntegrity(_config):
+    import pandas as pd
+
+    files = GetFiles(_config, _config.ArchiveFolder)
+
+    if len(files) > 0:
+        for file in files:
+            df = pd.read_excel(_config.ArchiveFolder + file, index_col=[0])
+            if _config.StrDeliveryDayToSearchFor != df['ValidDate'].iloc[0].strftime(_config.DeliveryDayFormat):
+                _config.WarningMessageDeliveryDayIntegrityArchiveFolder = _config.WarningMessageDeliveryDayIntegrityArchiveFolder + "Attention FastDeal Archive-Folder: The delivery date within file '" + file + "' is different from filename " + "(" + GetHyperlink(_config.ArchiveFolder + file, CONST_LINK_TEXT_FILE) + ") . <br><br>"
+
+def CheckThroughWholeConfig(config1):
     checkedConfigs = []
 
     for configEntry in config1:
@@ -164,7 +194,14 @@ def CheckThroughWholeConfig(config1):
         config = FastDealReminderConfig(configEntry)
 
         if config.NeedOfWarning:
-            config = CheckMissingFileInArchiveFolder(config)
+
+            config = CheckFilesToBeProcessed(config)
+
+            if config.WarningMessageFilesNotProcessed == "":
+                config = CheckMissingFileInArchiveFolder(config)
+
+            if config.WarningMessageMissingFiles == "":
+                CheckFileForDeliveryDayIntegrity(config)
 
             checkedConfigs.append(config)
 
@@ -173,7 +210,7 @@ def CheckThroughWholeConfig(config1):
 
 recipientsTo = ["lukas.dicke@statkraft.de"]
 
-testdaysAhead = 1
+testdaysAhead = -1
 
 emailBody = ""
 emailSubject = "FastDealReminderTest"
@@ -187,7 +224,13 @@ configs = json.load(f)
 _checkedConfigs = CheckThroughWholeConfig(configs)
 
 for config in _checkedConfigs:
-    message = message + config.WarningMessage
+    message = message + config.WarningMessageDeliveryDayIntegrityArchiveFolder
+
+for config in _checkedConfigs:
+    message = message + config.WarningMessageFilesNotProcessed
+
+for config in _checkedConfigs:
+    message = message + config.WarningMessageMissingFiles
 
 SendMailPythonServer(send_to=recipientsTo, send_cc=[], send_bcc=[], subject=emailSubject, body=message, files=[])
 
