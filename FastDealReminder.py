@@ -4,15 +4,15 @@
 # parameters: {}
 # owner: "MCSO, Lukas Dicke"
 
-"""
+# """
 
-Usage:
-    FastDealReminder.py <job_path> --daysAhead=<int>
+# Usage:
+    # FastDealReminder.py <job_path> --daysAhead=<int>
 
-Options:
-    --daysAhead=<int> rel. days to today => Delivery-Day [default: 1].
+# Options:
+    # --daysAhead=<int> rel. days to today => Delivery-Day [default: 1].
 
-"""
+# """
 
 import json
 import smtplib
@@ -96,7 +96,7 @@ def SendMailPythonServer(send_to, send_cc, send_bcc, subject, body, files=[]):
 
 
 def getUncPathFastDealReminderConfig():
-    return "\\\\energycorp.com\\common\\divsede\\Operations\\Exchanges\\FDUpload\\FastDealReminderConfig.json"
+    return "\\\\energycorp.com\\common\\divsede\\Operations\\Exchanges\\FDUpload\\FastDealReminderConfigProd.json"
 
 
 def getNeedOfWarning(strTimestamp):
@@ -183,8 +183,16 @@ def CheckFileForDeliveryDayIntegrity(_config):
     if len(files) > 0:
         for file in files:
             df = pd.read_excel(_config.ArchiveFolder + file, index_col=[0])
-            if _config.StrDeliveryDayToSearchFor != df['ValidDate'].iloc[0].strftime(_config.DeliveryDayFormat):
-                _config.WarningMessageDeliveryDayIntegrityArchiveFolder = _config.WarningMessageDeliveryDayIntegrityArchiveFolder + "Attention FastDeal Archive-Folder: The delivery date within file '" + file + "' is different from filename " + "(" + GetHyperlink(_config.ArchiveFolder + file, CONST_LINK_TEXT_FILE) + ") . <br><br>"
+
+            validDate = df['ValidDate'].iloc[0]
+
+            if isinstance(validDate, str) and "." in validDate:
+                validDate = datetime.strptime(validDate, "%d.%m.%Y")
+
+            test = validDate.strftime(_config.DeliveryDayFormat)
+
+            if _config.StrDeliveryDayToSearchFor != test:
+                _config.WarningMessageDeliveryDayIntegrityArchiveFolder = _config.WarningMessageDeliveryDayIntegrityArchiveFolder + "Attention FastDeal Archive-Folder: The delivery date within file '" + file + "' is different from filename " + "(" + GetHyperlink(_config.ArchiveFolder + file, CONST_LINK_TEXT_FILE) + "). <br><br>"
 
 def CheckThroughWholeConfig(config1):
     checkedConfigs = []
@@ -200,8 +208,8 @@ def CheckThroughWholeConfig(config1):
             if config.WarningMessageFilesNotProcessed == "":
                 config = CheckMissingFileInArchiveFolder(config)
 
-            if config.WarningMessageMissingFiles == "":
-                CheckFileForDeliveryDayIntegrity(config)
+            # if config.WarningMessageMissingFiles == "":
+            #     CheckFileForDeliveryDayIntegrity(config)
 
             checkedConfigs.append(config)
 
@@ -210,10 +218,10 @@ def CheckThroughWholeConfig(config1):
 
 recipientsTo = ["lukas.dicke@statkraft.de"]
 
-testdaysAhead = -1
+testdaysAhead = 0
 
 emailBody = ""
-emailSubject = "FastDealReminderTest"
+emailSubject = "Automated check for FastDeal-uploads"
 
 message = ""
 
@@ -223,8 +231,10 @@ configs = json.load(f)
 
 _checkedConfigs = CheckThroughWholeConfig(configs)
 
-for config in _checkedConfigs:
-    message = message + config.WarningMessageDeliveryDayIntegrityArchiveFolder
+
+
+# for config in _checkedConfigs:
+#     message = message + config.WarningMessageDeliveryDayIntegrityArchiveFolder
 
 for config in _checkedConfigs:
     message = message + config.WarningMessageFilesNotProcessed
@@ -232,6 +242,12 @@ for config in _checkedConfigs:
 for config in _checkedConfigs:
     message = message + config.WarningMessageMissingFiles
 
-SendMailPythonServer(send_to=recipientsTo, send_cc=[], send_bcc=[], subject=emailSubject, body=message, files=[])
+if message!="":
 
-print(ConvertHtmlStringToPlainText(message))
+    messageHeader = "Hi brave operators,<br><br>please keep track on the issues below. Thanks.<br><br><br>"
+
+    messageEnd = "<br><br>BR<br><br>Statkraft Operations"
+
+    SendMailPythonServer(send_to=recipientsTo, send_cc=[], send_bcc=[], subject=emailSubject, body=messageHeader + message + messageEnd, files=[])
+
+    print(ConvertHtmlStringToPlainText(message))
